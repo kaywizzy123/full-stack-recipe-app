@@ -9,8 +9,24 @@ const PORT = ENV.PORT || 3000;
 
 app.use(express.json());
 
-app.get("/api/health", (req, res) => {
+app.get("/api/v1/health", (req, res) => {
   res.status(200).json({ success: true });
+});
+
+app.get("/api/v1/favorites/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const userFavorites = await db
+      .select()
+      .from(favoritesTable)
+      .where(eq(favoritesTable.userId, userId));
+
+    res.status(200).json(userFavorites);
+  } catch (error) {
+    console.error("Error fetching favorite", error);
+    res.status(500).json({ error: "Something went wrong" });
+  }
 });
 
 app.post("/api/v1/favorites", async (req, res) => {
