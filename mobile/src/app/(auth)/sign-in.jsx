@@ -24,6 +24,8 @@ const SignInScreen = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [code, setCode] = useState("");
 
   const handleSignIn = async () => {
     if (!email || !password) {
@@ -42,9 +44,29 @@ const SignInScreen = () => {
 
       if (signInAttempt.status === "complete") {
         await setActive({ session: signInAttempt.createdSessionId });
+      } else if (
+        signInAttempt.status === "needs_second_factor" ||
+        signInAttempt.status === "needs_client_trust"
+      ) {
+        // New device (Client Trust) or MFA: Clerk requires an email code
+        const emailCodeFactor = signInAttempt.supportedSecondFactors?.find(
+          (factor) => factor.strategy === "email_code"
+        );
+
+        if (!emailCodeFactor) {
+          Alert.alert("Error", "No supported verification method available");
+          console.log(JSON.stringify(signInAttempt, null, 2));
+          return;
+        }
+
+        await signIn.prepareSecondFactor({
+          strategy: "email_code",
+          emailAddressId: emailCodeFactor.emailAddressId,
+        });
+        setPendingVerification(true);
       } else {
         Alert.alert("Error", "Sign in failed. Please try again");
-        console.error(JSON.stringify(signInAttempt, null, 2));
+        console.log(JSON.stringify(signInAttempt, null, 2));
       }
     } catch (error) {
       Alert.alert("Error", error.errors?.[0]?.message || "Sign in failed");
@@ -53,6 +75,97 @@ const SignInScreen = () => {
       setLoading(false);
     }
   };
+
+  const handleVerifyCode = async () => {
+    if (!code) {
+      Alert.alert("Error", "Please enter the verification code");
+      return;
+    }
+
+    if (!isLoaded) return;
+    setLoading(true);
+
+    try {
+      const signInAttempt = await signIn.attemptSecondFactor({
+        strategy: "email_code",
+        code: code.trim(),
+      });
+
+      if (signInAttempt.status === "complete") {
+        await setActive({ session: signInAttempt.createdSessionId });
+      } else {
+        Alert.alert("Error", "Verification failed. Please try again");
+        console.log(JSON.stringify(signInAttempt, null, 2));
+      }
+    } catch (error) {
+      Alert.alert("Error", error.errors?.[0]?.message || "Verification failed");
+      console.log(JSON.stringify(error, null, 2));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (pendingVerification) {
+    return (
+      <View style={authStyles.container}>
+        <KeyboardAvoidingView
+          style={authStyles.keyboardView}
+          behavior={Platform.OS === "ios" ? undefined : "height"}
+        >
+          <ScrollView
+            contentContainerStyle={authStyles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
+            <Text style={authStyles.title}>Verify Your Email</Text>
+            <Text style={authStyles.subtitle}>
+              We&apos;ve sent a verification code to {email.trim()}
+            </Text>
+
+            <View style={authStyles.formContainer}>
+              <View style={authStyles.inputContainer}>
+                <TextInput
+                  style={authStyles.textInput}
+                  placeholder="Enter verification code"
+                  placeholderTextColor={COLORS.textLight}
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  authStyles.authButton,
+                  loading && authStyles.buttonDisabled,
+                ]}
+                onPress={handleVerifyCode}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Text style={authStyles.buttonText}>
+                  {loading ? "Verifying..." : "Verify"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={authStyles.linkContainer}
+                onPress={() => {
+                  setPendingVerification(false);
+                  setCode("");
+                }}
+              >
+                <Text style={authStyles.link}>Back to Sign In</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
 
   return (
     <View style={authStyles.container}>
